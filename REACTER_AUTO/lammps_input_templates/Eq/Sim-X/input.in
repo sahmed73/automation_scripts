@@ -1,0 +1,175 @@
+# Update the following variables
+# datafile = <<datafile>>      # dynamic variable
+# sim_number = <<sim_number>>  # dynamic variable
+
+####################################################################################
+#---00000----------------------- General Setup -------------------------------------
+####################################################################################
+
+# Initialize variables --------------------------------------------------------
+variable T_eq            equal 300
+variable P_eq            equal 1
+variable tstep           equal 1.0 # fs
+variable datafile        string <<datafile>>
+variable sim_number      equal <<sim_number>>
+variable thermostep      equal 100
+variable dumpstep        equal 2000
+variable seed            equal (289567+87659*${sim_number})
+variable sim_name        string eq
+
+# Set up simulation -----------------------------------------------------------
+units                   real
+boundary                p p p
+atom_style              full/kk
+neighbor                2.0 bin
+neigh_modify            delay 0 every 10 check no
+timestep                ${tstep}
+
+# Define potential information ------------------------------------------------
+atom_style      full
+bond_style      class2
+angle_style     class2
+dihedral_style  class2
+improper_style  class2
+special_bonds   lj/coul 0 0 1
+
+kspace_style    pppm 1.0e-4
+pair_style      lj/class2/coul/long 12.0
+pair_modify     mix sixthpower
+
+# Read Datafile
+read_data               ${datafile}
+
+# Define groups ---------------------------------------------------------------
+group PAO molecule 1
+group AO molecule 2
+
+# Compute interaction energy between PAO and AO
+compute PAO_AO_interaction PAO group/group AO
+
+# Output interaction energy during simulation
+thermo_style            custom step temp etotal pe ke evdwl ecoul epair ebond eangle edihed eimp vol press density pxx pyy pzz pxy pxz pyz c_PAO_AO_interaction
+thermo                  ${thermostep}
+
+####################################################################################
+#--------------------------1111111-min-111111111-----------minimization-------------
+####################################################################################
+
+# Minimize the unit cell--------------------------------------------------------
+min_style			cg/kk
+minimize			1.0e-8 1.0e-8 100000 100000
+
+####################################################################################
+#---11111------------ NPT Density Equilibration (Auto Stop)-------------------------
+####################################################################################
+
+variable loop_runtime  equal 20 # run each loop this much time
+variable final_runtime equal 300 # run an additional time for safety
+variable density_old equal $(density)
+variable density_diff equal 1.0  # Start with a large difference
+variable tol equal 0.005  # Threshold for stabilization
+variable dloop_count equal 1
+
+variable ensemble_name string npt
+variable outfile_name  string ${sim_name}.${ensemble_name}
+
+velocity all create ${T_eq} ${seed} dist gaussian
+
+fix 1 all npt temp ${T_eq} ${T_eq} $(100.0*dt) iso ${P_eq} ${P_eq} $(1000.0*dt)
+
+dump 2 all custom ${dumpstep} ${outfile_name}.unwrapped.lammpstrj id mol type xu yu zu vx vy vz fx fy fz q
+
+print "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
+print "Density loop : 0"
+print "Old Density  : ${density_old}"
+print "New Density  : N/A"
+print "Difference   : N/A"
+print "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
+
+label loop_npt 
+  
+  run $(1000*v_loop_runtime/dt)
+
+  variable density_new equal $(density)
+  variable density_diff equal abs(v_density_new-v_density_old)
+  
+  print "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
+  print "Density loop : ${dloop_count}"
+  print "Old Density  : ${density_old}"
+  print "New Density  : ${density_new}"
+  print "Difference   : ${density_diff}"
+  print "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
+
+  if "${density_diff} < ${tol}" then "jump SELF npt_done"
+  variable density_old equal ${density_new}
+  variable dloop_count equal ${dloop_count}+1
+  
+  jump SELF loop_npt
+
+label npt_done
+
+## run an extra 
+run $(1000*v_final_runtime/dt) 
+
+variable last_dloop equal (${dloop_count}+1)
+print "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
+print "Density loop : ${last_dloop}"
+print "Old Density  : $(density)"
+print "New Density  : N/A"
+print "Difference   : N/A"
+print "Density equilibration complete."
+print "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%"
+
+undump 2
+write_data ${outfile_name}.data
+unfix 1
+
+####################################################################################
+#-----------------------3333333-NVT-3333333---------Energy-Equilibration------------
+####################################################################################
+
+variable runtime              equal 300
+variable ensemble_name        string nvt
+variable outfile_name         string ${sim_name}.${ensemble_name}
+
+# NVT-----------for energy equilibration-----------------------------------------------
+fix 1 all temp/berendsen ${T_eq} ${T_eq} $(100.0*dt)
+fix 2 all nve/kk
+
+######################################################
+################## Compute MSD #######################
+######################################################
+
+compute msd_AO AO msd    # Compute MSD for AO group
+compute msd_PAO PAO msd  # Compute MSD for PAO group
+
+# Create variables for each component of the MSD
+variable msd_AO_x equal c_msd_AO[1]
+variable msd_AO_y equal c_msd_AO[2]
+variable msd_AO_z equal c_msd_AO[3]
+variable msd_AO_total equal c_msd_AO[4]
+
+variable msd_PAO_x equal c_msd_PAO[1]
+variable msd_PAO_y equal c_msd_PAO[2]
+variable msd_PAO_z equal c_msd_PAO[3]
+variable msd_PAO_total equal c_msd_PAO[4]
+
+# Print raw MSD values every 100 timesteps, and append to file
+fix print_msd_AO AO print 100 "${msd_AO_x} ${msd_AO_y} ${msd_AO_z} ${msd_AO_total}" file msd_AO_all.txt title "msd_x msd_y msd_z msd_total" screen no
+fix print_msd_PAO PAO print 100 "${msd_PAO_x} ${msd_PAO_y} ${msd_PAO_z} ${msd_PAO_total}" file msd_PAO_all.txt title "msd_x msd_y msd_z msd_total" screen no
+
+######################################################
+######################################################
+######################################################
+
+dump                4 all custom ${dumpstep} ${outfile_name}.unwrapped.lammpstrj id mol type xu yu zu vx vy vz fx fy fz q
+
+run                 $(1000*v_runtime/dt)
+write_data          ${outfile_name}.data
+
+unfix print_msd_AO
+unfix print_msd_PAO
+
+undump             4
+unfix              2
+unfix              1
