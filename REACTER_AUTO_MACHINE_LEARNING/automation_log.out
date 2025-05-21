@@ -1,0 +1,43 @@
+===== Parsed CSV lines (excluding header) =====
+A9|CCCCCCCCOCCCC
+===============================================
+Executing 56 parallel jobs...
+Running run_reacter_in_gen ...
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%% Processing A9 %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Molecules combined successfully after 15 translations.
+Output saved to: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/Single_Molecules/pre_reaction_1.mol
+Molecules combined successfully after 16 translations.
+Output saved to: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/Single_Molecules/post_reaction_1.mol
+Detected phenolic H indices: []
+Not enough phenolic H atoms to remove index 1
+============================================
+Running atom_typing.py for A9
+============================================
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/Single_Molecules/PAO-OO.mol
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/Single_Molecules/A9.mol
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/Single_Molecules/pre_reaction_1.mol
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/Single_Molecules/post_reaction_1.mol
+============================================
+Running all2lmp.py for each _typed.data file
+============================================
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_atom_typing/A9_typed.data
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_atom_typing/PAO-OO_typed.data
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_atom_typing/post_reaction_1_typed.data
+  -Processing: /mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_atom_typing/pre_reaction_1_typed.data
+============================================
+Running bond_react_merge.py
+============================================
+  -data1=/mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_all2lmp/PAO-OO_typed_PCFF-IFF.data
+  -data2=/mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_all2lmp/A9_typed_PCFF-IFF.data
+  -pre1=/mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_all2lmp/pre_reaction_1_typed_PCFF-IFF.data
+  -post1=/mnt/borgstore/amartini/sahmed73/data/automation_scripts/REACTER_AUTO_MACHINE_LEARNING/test_delete_afterwards/A9/DataFile/from_LUNAR/from_all2lmp/post_reaction_1_typed_PCFF-IFF.data
+============================================
+Running cell_bulder.py
+============================================
+  -Targey density: 0.15
+  -Calculated Box Size: 94Ax94Ax94A
+ALL REACTER INPUT FILES CREATED!!

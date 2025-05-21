@@ -1,0 +1,92 @@
+# Update the following variables
+# sim_run_time = <<sim_run_time>> # static variable
+# Rmax = <<Rmax>>                 # static variable
+# sim_number = <<sim_number>>              # dynamic variable
+# Rprob = <<Rprob>>               # static variable
+# FF = <<ff>>                     # static variable
+# nframe = <<nframe>>             # static variable
+
+variable		runtime			equal <<sim_run_time>> # ns
+variable		tstep			equal 1.0 # fs		
+variable		thermostep		equal 100
+variable		number_frame	equal <<nframe>> # constant
+variable		dumpstep		equal ceil(${runtime}*1000*1000/(${tstep}*${number_frame}))
+variable		Rmax			equal <<Rmax>>
+variable		sim_number      equal <<sim_number>>
+variable        Rprob           equal <<Rprob>>
+variable        vseed           equal $(floor(random(99999, 1000000, v_sim_number)))
+variable        myid            string reaction   # unique LAMMPS out filenameID
+variable        ptemp           equal  300        # processing temp K
+variable        nevery          equal  10         # attempt reaction every this many steps
+variable        pseed           equal  94587113   # probability random number seed (positive integer)
+
+variable		datafile		string ../../../Eq/Sim-${sim_number}/eq.nvt.data
+variable        molecule1       string ../../../DataFile/from_LUNAR/from_bond_react_merge/pre_reaction_1_typed_<<ff>>_merged.lmpmol
+variable        molecule2       string ../../../DataFile/from_LUNAR/from_bond_react_merge/post_reaction_1_typed_<<ff>>_merged.lmpmol
+variable		rxn_map1		string ../../../DataFile/from_LUNAR/from_bond_react_merge/pre1-post1_rxn-map_uncommented.txt
+
+
+#------------Initialization------------
+units           real
+dimension       3
+boundary        p p p
+newton          on
+timestep        ${tstep}
+
+
+#------------Force Field------------
+atom_style      full
+bond_style      class2
+angle_style     class2
+dihedral_style  class2
+improper_style  class2
+special_bonds   lj/coul 0 0 1
+
+kspace_style    pppm 1.0e-4
+pair_style      lj/class2/coul/long 12.0
+pair_modify     mix sixthpower
+
+neighbor        2.0 bin
+neigh_modify    delay 0 every 1 check yes one 5000 page 100000
+
+
+#------------Read datafile------------
+# The extra/... keywords enable extra B/A/D/I due to topology changes caused by reactions
+read_data       ${datafile} &
+                extra/special/per/atom 20 &
+                extra/bond/per/atom 10 &
+                extra/angle/per/atom 20 &
+                extra/dihedral/per/atom 50 &
+                extra/improper/per/atom 20
+
+
+velocity        all create ${ptemp} ${vseed} dist gaussian # create some velocities
+
+
+#------------Read rxn templates------------
+molecule        mol1  ${molecule1}
+molecule        mol2  ${molecule2}
+
+dump            mydump_u all custom ${dumpstep} ${myid}.unwrapped.lammpstrj id mol type xu yu zu vx vy vz fx fy fz q
+
+#------------bond/react execution------------
+fix      		myrxn all bond/react stabilization yes statted_grp .03 &
+                react rxn1  all ${nevery} 0.5 ${Rmax} mol1  mol2  ${rxn_map1} prob ${Rprob} ${pseed} stabilize_steps 500
+
+fix             1 statted_grp_REACT nvt temp ${ptemp} ${ptemp} 100
+fix             2 bond_react_MASTER_group temp/rescale 1 ${ptemp} ${ptemp} 10 1
+
+
+#------------Calculate rxns------------
+# You may use the rxnN variables to calculate crosslink
+# density and then log in thermo_style custom below
+variable        rxn1 equal f_myrxn[1]
+
+
+#------------Thermosettings------------
+thermo          ${thermostep}
+thermo_style    custom step temp press vol density ke pe etotal evdwl ecoul epair &
+                ebond eangle edihed eimp pxx pyy pzz pxy pxz pyz v_rxn1
+
+#------------Run------------
+run             $(1000*1000*v_runtime/dt)
