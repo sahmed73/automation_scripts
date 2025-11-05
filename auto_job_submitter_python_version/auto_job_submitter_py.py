@@ -152,15 +152,7 @@ def check_simulation_output_file_status(job_dir, config):
     if os.path.isfile(output_filepath):
         with open(output_filepath, 'r') as file:
             if any(job_completion_keyword in line for line in file):
-                return "complete"
-            
-            # will delete later
-            elif "eq.nvt.data" in os.listdir(job_dir):
-                short_path = job_dir[job_dir.find("/", 65)+1:]
-                log = config.get("logger", print)
-                log(f"\t\t-- No wall-time but has eq.nvt.data: {short_path}")
-                return "complete"
-            
+                return "complete"            
             else:
                 return "incomplete"
     else:
@@ -250,7 +242,7 @@ def update_job_dir_array(root_dir, config):
         return None
 
     job_dir_array = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=os.cpu_count()) as executor:
         for result in executor.map(check_and_filter, candidate_dirs):
             if result:
                 job_dir_array.append(result)
@@ -314,7 +306,7 @@ def update_slurm_resources_in_submit_file(job_dir, partition, ntasks_per_node, t
         f.writelines(lines)
 
     
-def submit_job(job_dir, config):   
+def submit_job(job_dir, root_dir, config):   
     '''
         Max resources:
             
@@ -333,7 +325,7 @@ def submit_job(job_dir, config):
     cluster_partition_config = config["cluster_partition_config"]
     logger = config.get("logger", print)
     
-    short_path = job_dir[job_dir.find("/", 65)+1:]  # Hard Code
+    short_path = os.path.relpath(job_dir, root_dir)
 
     # logger(f"[DEBUG] Starting job submission attempt in directory: {job_dir}")
 
@@ -390,7 +382,7 @@ def setup_logger(log_file_base):
     base, ext = os.path.splitext(log_file_base)
     log_file = f"{base}_{timestamp}{ext}"  # Makes: auto_submit_20250604_142100.log
 
-    def log(message, timestamp=False, print_to_console=True):
+    def log(message, timestamp=False, print_to_console=False):
         parts = []
         parts.append(str(message))
         if timestamp:
@@ -403,6 +395,7 @@ def setup_logger(log_file_base):
             print(log_line.strip())
 
     return log     
+
 
 
 def initialize_jobid_files_for_legacy_runs(root_dir, config):
@@ -465,33 +458,108 @@ def initialize_jobid_files_for_legacy_runs(root_dir, config):
     extime = end_time - start_time
     log(f"\t- Runtime: {extime}")
 
-       
+def sort_job_dirs_by_priority(job_dir_array, priority_words):
+    """
+    Simple version: priority dirs first, then the rest
+    
+    Args:
+        job_dir_array (list): List of job directory paths
+        priority_words (list): List of words/phrases to prioritize
+        
+    Returns:
+        list: Sorted job directory array with prioritized dirs first
+    """
+    priority_dirs = []
+    other_dirs = []
+    
+    for job_dir in job_dir_array:
+        job_dir_lower = job_dir.lower()
+        if any(word.lower() in job_dir_lower for word in priority_words):
+            priority_dirs.append(job_dir)
+        else:
+            other_dirs.append(job_dir)
+    
+    # Sort other group alphabetically
+    other_dirs.sort()
+
+    return priority_dirs + other_dirs
+
+def get_error_from_simulation_outfile(job_dir, config):    
+    job_output_filename = config["job_output_filename"]
+
+    output_filepath = os.path.join(job_dir, job_output_filename)
+    
+    if os.path.isfile(output_filepath):
+        with open(output_filepath, 'r') as file:
+            for line in file:
+                if "error" in line.lower():
+                    return line.strip()
+                
+    return None 
+
+def simulation_status_report(root_dir, config):  
+    start_time = time.time()
+    
+    status_report_filepath = config["status_report_filepath"]
+    local_config = config.copy()
+    local_config["exclude_status"] = []
+    
+    all_job_dir_array = update_job_dir_array(root_dir, local_config)
+
+    counts = {}
+    with open(status_report_filepath, "w") as file:
+        file.write(f"Simulation Status Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        file.write("=" * 70 + "\n\n")
+
+        for i, job_dir in enumerate(all_job_dir_array, start=1):
+            status = check_simulation_status(job_dir, local_config)
+            relative_job_dir = os.path.relpath(job_dir, root_dir)
+            error = ""
+            if status == "SOFT_FAIL":
+                err = get_error_from_simulation_outfile(job_dir, local_config)
+                if err:
+                    error = f" | Error: {err.strip()}"
+
+            file.write(f"{i}. {relative_job_dir} | {status}{error}\n")
+            counts[status] = counts.get(status, 0) + 1
+
+        file.write("\nSummary:\n")
+        for key, value in counts.items():
+            file.write(f"  {key}: {value}\n")
+            
+        elapsed = time.time() - start_time
+        mins, secs = divmod(int(elapsed), 60)
+        file.write(f"\nRuntime: {mins} min {secs} sec\n")
+
+            
 
 def main():
     # inputs
-    root_dir = "/mnt/borgstore/amartini/sahmed73/data/REACTER/TEST_REVERSE_REAC_V2"
+    root_dir = "/mnt/borgstore/amartini/sahmed73/data/REACTER/REACTER_DATA_ML/PAO-OO_PhSub=Me-CMe3-OMe-COOH_Filtered_Lube-125xAO-100_CVFF"
     log_filepath = os.path.join(root_dir, "auto_submit.log")
     log = setup_logger(log_filepath)
+    status_report_filepath = os.path.join(root_dir, "status_report.log")
     
     
     config = {
         "username": "sahmed73",
         "job_dir_identifying_filename": "input.in",
         "clusters": ["pinnacles"],
-        "exclude_status": ["COMPLETED", "RUNNING", "PENDING"],
+        "exclude_status": ["COMPLETED", "RUNNING", "PENDING", "CANCELLED", "TIMEOUT"],
         "job_submit_filename": "submit.sh",
         "job_output_filename": "output.out",
         "job_completion_keyword": "Total wall time", # "Normal termination of Gaussian"
         "logger": log,
+        "status_report_filepath": status_report_filepath,
         "cluster_partition_config": [
-            "pinnacles|test              |1 |1:00:00   |52",
-            "pinnacles|short             |12|6:00:00   |52",
-            "pinnacles|long              |3 |6:00:00   |52",
-            "pinnacles|medium            |6 |6:00:00   |52",
-            "pinnacles|bigmem            |2 |6:00:00   |52",
-            "pinnacles|pi.amartini       |6 |6:00:00   |52",
-            "pinnacles|cenvalarc.compute |3 |6:00:00   |52",
-            "pinnacles|cenvalarc.bigmem  |2 |6:00:00   |52"
+            #"pinnacles|test              |1 |1:00:00   |52", # not use it
+            "pinnacles|short             |12|6:00:00   |28",
+            "pinnacles|long              |3 |3-00:00:00   |28",
+            "pinnacles|medium            |6 |1-00:00:00   |28", 
+            #"pinnacles|bigmem            |2 |3:00:00   |52", # will not use it since hmnodes
+            "pinnacles|pi.amartini       |6 |1-00:00:00   |28",
+            "pinnacles|cenvalarc.compute |3 |1-00:00:00   |28"
+            #"pinnacles|cenvalarc.bigmem  |2 |3:00:00   |52" # will not use it since hmnodes
         ]
 
     }
@@ -501,7 +569,13 @@ def main():
     
     log("Auto job submission script started.", timestamp=True)
     job_dir_array = update_job_dir_array(root_dir, config)
+
+    priority_words = ["Sim-2"]
+    job_dir_array = sort_job_dirs_by_priority(job_dir_array, priority_words)
     log(f"Detected {len(job_dir_array)} job directories in the root directory.")
+    for job_dir in job_dir_array:
+        relative_job_dir = os.path.relpath(job_dir, root_dir)
+        log(f"\t- {relative_job_dir}")
     log("="*70)
     log("")
 
@@ -509,6 +583,10 @@ def main():
     submission_loop_count = 0
     while job_dir_array:
         start_time = time.time()
+        
+        if submission_loop_count%10==0:
+            simulation_status_report(root_dir, config)
+            
         submission_loop_count += 1
         log(f"\nSubmission loop: {submission_loop_count}", timestamp=True)
         
@@ -518,7 +596,7 @@ def main():
         job_submitted_count = 0
     
         for job_dir in jobs_ready_for_submission_array:
-            submitted = submit_job(job_dir, config)
+            submitted = submit_job(job_dir, root_dir, config)
             if submitted:
                 job_submitted_count += 1
                 if job_dir in job_dir_array:
@@ -532,6 +610,11 @@ def main():
         log(f"\t- Runtime: {runtime:.2f} seconds")
         log("\t- Waiting 60 seconds before next loop ...")
         time.sleep(60)
+        
+        
+    # Future Directions
+    #  1. Scan directory to update a new job status file
+    #  2. 
 
 
     
